@@ -1,122 +1,204 @@
+# --------------------------------------------
+# Imports at the top - PyShiny EXPRESS VERSION
+# --------------------------------------------
 
+# From shiny, import just reactive and render
+from shiny import reactive, render
+
+# From shiny.express, import just ui and inputs if needed
+from shiny.express import ui
+
+import random
+from datetime import datetime
+from collections import deque
+import pandas as pd
 import plotly.express as px
-from palmerpenguins import load_penguins
-from shiny import App, ui, reactive
-from shiny.express import input, ui, render
-from shinywidgets import render_widget, render_plotly
-import seaborn as sns
+from shinywidgets import render_plotly
+from scipy import stats
 
-penguins = load_penguins()
+# --------------------------------------------
+# Import icons as you like
+# --------------------------------------------
 
-ui.page_opts(title="Palmer Penguins project by Aanchal", fillable=True)
+# https://fontawesome.com/v4/cheatsheet/
+from faicons import icon_svg
 
-# ADD A SIDEBAR
-with ui.sidebar(
-    position="right", open="open"
-): 
-    ui.h2("Sidebar") # sidebar header
-    # Dropdown menu 
-    ui.input_selectize(
-        "selected_attribute",
-        "Selected Attribute",
-        choices=["bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g"],
+# --------------------------------------------
+# Shiny EXPRESS VERSION
+# --------------------------------------------
+
+# --------------------------------------------
+# First, set a constant UPDATE INTERVAL for all live data
+# Constants are usually defined in uppercase letters
+# Use a type hint to make it clear that it's an integer (: int)
+# --------------------------------------------
+
+UPDATE_INTERVAL_SECS: int = 3
+
+# --------------------------------------------
+# Initialize a REACTIVE VALUE with a common data structure
+# The reactive value is used to store state (information)
+# Used by all the display components that show this live data.
+# This reactive value is a wrapper around a DEQUE of readings
+# --------------------------------------------
+
+DEQUE_SIZE: int = 5
+reactive_value_wrapper = reactive.value(deque(maxlen=DEQUE_SIZE))
+
+# --------------------------------------------
+# Initialize a REACTIVE CALC that all display components can call
+# to get the latest data and display it.
+# The calculation is invalidated every UPDATE_INTERVAL_SECS
+# to trigger updates.
+# It returns a tuple with everything needed to display the data.
+# Very easy to expand or modify.
+# --------------------------------------------
+
+@reactive.calc()
+def reactive_calc_combined():
+    # Invalidate this calculation every UPDATE_INTERVAL_SECS to trigger updates
+    reactive.invalidate_later(UPDATE_INTERVAL_SECS)
+
+    # Data generation logic
+    temp_antarctic = round(random.uniform(-18, -16), 1)  # Antarctic temperature
+    temp_arctic = round(random.uniform(-20, -15), 1)  # Arctic temperature
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Store both temperatures in the deque
+    new_dictionary_entry = {"temp_antarctic": temp_antarctic, "temp_arctic": temp_arctic, "timestamp": timestamp}
+
+    # get the deque and append the new entry
+    reactive_value_wrapper.get().append(new_dictionary_entry)
+
+    # Get a snapshot of the current deque for any further processing
+    deque_snapshot = reactive_value_wrapper.get()
+
+    # For Display: Convert deque to DataFrame for display
+    df = pd.DataFrame(deque_snapshot)
+
+    # For Display: Get the latest dictionary entry
+    latest_dictionary_entry = new_dictionary_entry
+
+    # Return a tuple with everything we need
+    # Every time we call this function, we'll get all these values
+    return deque_snapshot, df, latest_dictionary_entry
+
+# Define the Shiny UI Page layout
+ui.page_opts(title="PyShiny Express: Live Data Example", fillable=True)
+
+# Sidebar for links and information
+with ui.sidebar(open="open"):
+    ui.h2("Antarctic Explorer", class_="text-center")
+    ui.p(
+        "A demonstration of real-time temperature readings in Antarctica and Arctic.",
+        class_="text-center",
     )
-
-    # Numeric input for Plotly histogram
-    ui.input_numeric("plotly_bin_count", "Bin Count (Plotly)", 1, min=1, max=10)
-
-    # Slider input for Seaborn
-    ui.input_slider(
-        "seaborn_bin_count", "Bin Count (Seaborn)", 5, 50, 25
-    )
-
-    # Checkbox to filter species
-    ui.input_checkbox_group(
-        "selected_species_list",
-        "Select a Species",
-        choices=["Adelie", "Gentoo", "Chinstrap"],
-        selected=["Adelie", "Gentoo"],
-        inline=False,
-    )
-
-    # Dividing line
     ui.hr()
-
-    # Hyperlink to GitHub repo
-    ui.h5("GitHub Repo")
+    ui.h6("Links:")
     ui.a(
-        "cintel-02-data",
-        href="https://github.com/aanchalgt/cintel-02-data",
+        "GitHub Source",
+        href="https://github.com/denisecase/cintel-05-cintel",
+        target="_blank",
+    )
+    ui.a(
+        "GitHub App",
+        href="https://denisecase.github.io/cintel-05-cintel/",
+        target="_blank",
+    )
+    ui.a("PyShiny", href="https://shiny.posit.co/py/", target="_blank")
+    ui.a(
+        "PyShiny Express",
+        href="hhttps://shiny.posit.co/blog/posts/shiny-express/",
         target="_blank",
     )
 
-# Main content layout
+# In Shiny Express, everything not in the sidebar is in the main panel
 with ui.layout_columns():
-    # Display the Plotly Histogram
+    # Antarctic temperature card
+    with ui.value_box(
+        showcase=icon_svg("sun"),
+        theme="bg-gradient-blue-purple",
+    ):
+        "Current Temperature (Antarctic)"
+        @render.text
+        def display_temp_antarctic():
+            """Get the latest Antarctic temperature"""
+            deque_snapshot, df, latest_dictionary_entry = reactive_calc_combined()
+            return f"{latest_dictionary_entry['temp_antarctic']} C"
+        "warmer than usual"
+
+    # Arctic temperature card
+    with ui.value_box(
+        showcase=icon_svg("snowflake"),
+        theme="bg-gradient-blue-purple",
+    ):
+        "Current Temperature (Arctic)"
+        @render.text
+        def display_temp_arctic():
+            """Get the latest Arctic temperature"""
+            deque_snapshot, df, latest_dictionary_entry = reactive_calc_combined()
+            return f"{latest_dictionary_entry['temp_arctic']} C"
+        "colder than usual"
+
+    # Compare Arctic and Antarctic temperatures
+    with ui.card(full_screen=True):
+        ui.card_header("Which is Colder? Arctic vs Antarctic")
+        
+        @render.text
+        def compare_temperatures():
+            """Compare Arctic and Antarctic temperatures"""
+            deque_snapshot, df, latest_dictionary_entry = reactive_calc_combined()
+            temp_arctic = latest_dictionary_entry["temp_arctic"]
+            temp_antarctic = latest_dictionary_entry["temp_antarctic"]
+            if temp_arctic < temp_antarctic:
+                return f"Arctic is colder: {temp_arctic}°C vs {temp_antarctic}°C"
+            else:
+                return f"Antarctic is colder: {temp_antarctic}°C vs {temp_arctic}°C"
+
+    # Most recent readings
+    with ui.card(full_screen=True):
+        ui.card_header("Most Recent Readings")
+
+        @render.data_frame
+        def display_df():
+            """Get the latest readings and return a dataframe with current readings"""
+            deque_snapshot, df, latest_dictionary_entry = reactive_calc_combined()
+            pd.set_option('display.width', None)        # Use maximum width
+            return render.DataGrid(df, width="100%")
+
+    # Chart with current trend
     with ui.card():
-        ui.card_header("Plotly Histogram")
+        ui.card_header("Chart with Current Trend")
 
         @render_plotly
-        def plotly_histogram():
-            return px.histogram(
-                penguins,
-                x=input.selected_attribute(),
-                nbins=input.plotly_bin_count(),
-                color="species",
-            )
+        def display_plot():
+            # Fetch from the reactive calc function
+            deque_snapshot, df, latest_dictionary_entry = reactive_calc_combined()
 
-    # Display Data Table (showing all data)
-    with ui.card():
-        ui.card_header("Data Table")
+            # Ensure the DataFrame is not empty before plotting
+            if not df.empty:
+                # Convert the 'timestamp' column to datetime for better plotting
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-        @render.data_frame
-        def data_table():
-            return render.DataTable(penguins)
+                # Create scatter plot for readings
+                fig = px.scatter(df,
+                                 x="timestamp",
+                                 y="temp_antarctic",
+                                 title="Temperature Readings with Regression Line (Antarctic)",
+                                 labels={"temp_antarctic": "Temperature (°C)", "timestamp": "Time"},
+                                 color_discrete_sequence=["blue"])
 
-    # Display Data Grid (showing all data)
-    with ui.card():
-        ui.card_header("Data Grid")
+                # Linear regression for Antarctic temperature
+                x_vals = range(len(df))
+                y_vals = df["temp_antarctic"]
 
-        @render.data_frame
-        def data_grid():
-            return render.DataGrid(penguins)
+                slope, intercept, r_value, p_value, std_err = stats.linregress(x_vals, y_vals)
+                df['best_fit_line'] = [slope * x + intercept for x in x_vals]
 
-with ui.layout_columns():
-    # Plotly Scatterplot (showing all species)
-        with ui.card(full_screen=True):
-            ui.card_header("Plotly Scatterplot: Species")
-            @render_plotly
-            def plotly_scatterplot():
-                return px.scatter(
-                data_frame=filtered_data(),
-                x="body_mass_g",
-                y="bill_depth_mm",
-                color="species",
-                labels={
-                    "bill_depth_mm": "Bill Depth (mm)",
-                    "body_mass_g": "Body Mass (g)",
-                },
-            )
+                # Add the regression line to the figure
+                fig.add_scatter(x=df["timestamp"], y=df['best_fit_line'], mode='lines', name='Regression Line')
 
-    # Seaborn Histogram (showing all species)
-        with ui.card():
-            ui.card_header("Seaborn Histogram")
-            @render.plot
-            def plot2():
-                ax = sns.histplot(
-                    data=filtered_data(),
-                    x=input.selected_attribute(),
-                    bins=input.seaborn_bin_count(),
-            )
-                ax.set_title("Palmer Penguins")
-                ax.set_xlabel(input.selected_attribute())
-                ax.set_ylabel("Number")
-                return ax
+                # Update layout as needed to customize further
+                fig.update_layout(xaxis_title="Time", yaxis_title="Temperature (°C)")
 
-# --------------------------------------------------------
-# Reactive calculations and effects
-# --------------------------------------------------------
-
-@reactive.calc
-def filtered_data():
-    return penguins
+            return fig
